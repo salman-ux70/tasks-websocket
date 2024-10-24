@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebSocket Task Client</title>
+  <style>
+    .status-connected { color: green; }
+    .status-disconnected { color: red; }
+    .status-error { color: orange; }
+
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 20px 0;
+    }
+
+    th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+
+    th {
+        background-color: #f2f2f2;
+    }
+
+    .error-message {
+        color: red;
+        margin: 10px 0;
+        display: none;
+    }
+  </style>
+  <script>
+    let socket;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+
+    function setupSocket() {
+        const serverURL = 'ws://' + window.location.host + '/tasks2';
+        console.log('Attempting to connect to:', serverURL);
+
+        try {
+            socket = new WebSocket(serverURL);
+            setupSocketHandlers();
+        } catch (e) {
+            console.error('Failed to create WebSocket:', e);
+            updateConnectionStatus('error', 'Failed to create connection');
+        }
+    }
+
+    function setupSocketHandlers() {
+        socket.onopen = function() {
+            console.log('WebSocket connected');
+            updateConnectionStatus('connected', 'Connected');
+            reconnectAttempts = 0;
+            hideError();
+        };
+
+        socket.onclose = function(event) {
+            console.log('WebSocket closed:', event);
+            updateConnectionStatus('disconnected', 'Disconnected');
+
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                reconnectAttempts++;
+                console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+                setTimeout(setupSocket, 3000);
+            } else {
+                showError('Maximum reconnection attempts reached. Please refresh the page.');
+            }
+        };
+
+        socket.onerror = function(error) {
+            console.error('WebSocket error:', error);
+            updateConnectionStatus('error', 'Connection error');
+        };
+
+        socket.onmessage = function(event) {
+            console.log('Message received:', event.data);
+            try {
+                const task = JSON.parse(event.data);
+                addTaskToTable(task);
+                hideError();
+            } catch (e) {
+                console.error('Error processing message:', e);
+                showError('Error processing received data');
+            }
+        };
+    }
+
+    function updateConnectionStatus(status, message) {
+        const statusElement = document.getElementById('connectionStatus');
+        statusElement.textContent = message;
+        statusElement.className = `status-${status}`;
+    }
+
+    function showError(message) {
+        const errorDiv = document.getElementById('errorMessage');
+        errorDiv.textContent = message;
+        errorDiv.style.display = 'block';
+    }
+
+    function hideError() {
+        document.getElementById('errorMessage').style.display = 'none';
+    }
+
+    function addTaskToTable(task) {
+        const tbody = document.getElementById('tasksTableBody');
+        const row = document.createElement('tr');
+
+        row.innerHTML = `
+            <td>${escapeHtml(task.name)}</td>
+            <td>${escapeHtml(task.description)}</td>
+            <td>${escapeHtml(task.priority)}</td>
+        `;
+
+        tbody.appendChild(row);
+    }
+
+    function escapeHtml(unsafe) {
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function sendTaskToServer() {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            showError('Not connected to server');
+            return false;
+        }
+
+        const task = {
+            name: document.getElementById('newTaskName').value,
+            description: document.getElementById('newTaskDescription').value,
+            priority: document.getElementById('newTaskPriority').value
+        };
+
+        if (!task.name || !task.description) {
+            showError('Name and description are required');
+            return false;
+        }
+
+        try {
+            console.log('Sending task:', task);
+            socket.send(JSON.stringify(task));
+            document.getElementById('taskForm').reset();
+            hideError();
+        } catch (e) {
+            console.error('Error sending task:', e);
+            showError('Failed to send task');
+        }
+
+        return false;
+    }
+
+    // Initialize on page load
+    window.onload = setupSocket;
+  </script>
+</head>
+<body>
+<h1>Task Management System</h1>
+<div>Status: <span id="connectionStatus" class="status-disconnected">Connecting...</span></div>
+<div id="errorMessage" class="error-message"></div>
+
+<table>
+  <thead>
+  <tr>
+    <th>Name</th>
+    <th>Description</th>
+    <th>Priority</th>
+  </tr>
+  </thead>
+  <tbody id="tasksTableBody">
+  </tbody>
+</table>
+
+<h3>Create New Task</h3>
+<form id="taskForm" onsubmit="return sendTaskToServer()">
+  <div>
+    <label for="newTaskName">Name:</label>
+    <input type="text" id="newTaskName" name="newTaskName" required>
+  </div>
+  <div>
+    <label for="newTaskDescription">Description:</label>
+    <input type="text" id="newTaskDescription" name="newTaskDescription" required>
+  </div>
+  <div>
+    <label for="newTaskPriority">Priority:</label>
+    <select id="newTaskPriority" name="newTaskPriority">
+      <option value="Low">Low</option>
+      <option value="Medium">Medium</option>
+      <option value="High">High</option>
+      <option value="Vital">Vital</option>
+    </select>
+  </div>
+  <button type="submit">Add Task</button>
+</form>
+</body>
+</html>
